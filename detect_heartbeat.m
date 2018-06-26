@@ -1,29 +1,52 @@
-function peak_locs=detect_heartbeat(D,plotFlag)
+function peak_locs=detect_heartbeat(D,method,plotFlag)
 
-if nargin<2
+if nargin<3
     plotFlag=0;
+end
+if nargin<2
+    method=1;
 end
 
 %% pre-processing ECG
+tm=D.time;
 ECG_idx=match_str(D.chanlabels,'ECG');
 ECG=squeeze(D(ECG_idx,:,1));
-% ECG_filt=bandpass(ECG,D.fsample,0.05,40,4);
-ECG_norm=(ECG-nanmedian(ECG))./(nanstd(ECG));
+ECG_filt = ft_preproc_bandstopfilter(ECG,D.fsample,[45 55],5,'but','twopass');
+ECG_filt=bandpass(ECG_filt,D.fsample,0.05,40,4);
 
+if method==1
+    ECG_norm=(ECG_filt-nanmedian(ECG_filt))./(nanstd(ECG_filt));
 %% detect peak in ECG
-[pks,peak_locs] = findpeaks(ECG_norm);
-% clean small peaks
-peak_locs(ECG_norm(peak_locs)<3)=[];
-% clean peaks too close
-limitHB=150;
-peak_locs(find(diff(peak_locs/D.fsample)<(1/(limitHB/60)))+1)=[];
-
-%% summing-up detection
-min_interval=prctile(diff(peak_locs)/D.fsample,1);
-max_interval=prctile(diff(peak_locs)/D.fsample,99);
-mean_interval=mean(diff(peak_locs)/D.fsample);
-fprintf('... ... %g heartbeats detected with an average HB rate of %2.1f hbm\n',length(peak_locs),1/mean_interval*60)
-fprintf('... ... intervals 1st percentile: %g / 99th percentile:  %g\n',min_interval,max_interval)
+    [pks,peak_locs] = findpeaks(ECG_norm);
+    % clean small peaks
+    % peak_locs(ECG_norm(peak_locs)<3)=[];
+    % clean peaks too close
+    limitHB=150;
+    peak_locs(find(diff(peak_locs/D.fsample)<(1/(limitHB/60)))+1)=[];
+    
+    %% summing-up detection
+    min_interval=prctile(diff(peak_locs)/D.fsample,1);
+    max_interval=prctile(diff(peak_locs)/D.fsample,99);
+    mean_interval=mean(diff(peak_locs)/D.fsample);
+    fprintf('... ... %g heartbeats detected with an average HB rate of %2.1f hbm\n',length(peak_locs),1/mean_interval*60)
+    fprintf('... ... intervals 1st percentile: %g / 99th percentile:  %g\n',min_interval,max_interval)
+    
+elseif method==2
+    wt = modwt(ECG_filt,5);
+    wtrec = zeros(size(wt));
+    wtrec(4:5,:) = wt(4:5,:);
+    y = imodwt(wtrec,'sym4');
+    
+    [pks,peak_locs] = findpeaks(y,'MinPeakHeight',5,...
+        'MinPeakDistance',0.150);
+    
+    min_interval=prctile(diff(peak_locs)/D.fsample,1);
+    max_interval=prctile(diff(peak_locs)/D.fsample,99);
+    mean_interval=mean(diff(peak_locs)/D.fsample);
+    fprintf('... ... %g heartbeats detected with an average HB rate of %2.1f hbm\n',length(peak_locs),1/mean_interval*60)
+    fprintf('... ... intervals 1st percentile: %g / 99th percentile:  %g\n',min_interval,max_interval)
+    
+end
 %%
 if plotFlag
     figure;
